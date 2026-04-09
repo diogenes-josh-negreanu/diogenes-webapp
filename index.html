@@ -4,7 +4,7 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Josh Negreanu / Diogenes</title>
+    <title>Diogenes</title>
 
     <link rel="stylesheet" href="style.css">
 
@@ -27,15 +27,15 @@
     <nav class="topnav">
         <!-- <a href="https://joshnegreanu.com" class="top_nav nav-home">
             <b>Josh Negreanu &nbsp</b><div class="nav-sub">Portland, OR</div>
-        </a>
-        <div class="nav-links">
-            <a href="https://joshnegreanu.com/diogenes" class="top_nav">DIOGENES</a>
-            <a href="https://joshnegreanu.com/files/resume.pdf" target="_blank" class="top_nav">RESUME</a>
+        </a> -->
+        <a class="top_nav_logo" style="text-decoration: none; color: black;" href="https://diogenes.joshnegreanu.com">d\</a>
+        <!-- <div class="nav-links"> -->
+            <!-- <a href="https://joshnegreanu.com" class="top_nav">joshnegreanu.com</a> -->
+            <!-- <a href="https://joshnegreanu.com/files/resume.pdf" target="_blank" class="top_nav">RESUME</a>
             <a href="https://linkedin.com/in/joshnegreanu/" target="_blank" class="top_nav">LINKEDIN</a>
             <a href="https://github.com/JoshNegreanu" target="_blank" class="top_nav">GITHUB</a>
-            <a href="https://linktr.ee/joshnegreanu" target="_blank" class="top_nav">SOCIALS</a>
-        </div> -->
-        <a class="top_nav_logo" style="text-decoration: none; color: black;" href="https://diogenes.joshnegreanu.com">d\</a>
+            <a href="https://linktr.ee/joshnegreanu" target="_blank" class="top_nav">SOCIALS</a> -->
+        <!-- </div> -->
     </nav>
 
     <!-- Top gradient fade -->
@@ -47,9 +47,9 @@
 
             <!-- Greeting Card -->
             <div class="greeting-card" id="greetingCard">
-                <div class="greeting-title">Hello there.</div>
+                <div class="greeting-title">Hello, there.</div>
                 <!-- <br> -->
-                <div class="greeting-sub" style="color: rgb(100, 100, 100)">Diogenes is currently in development and not operational, but should be soon. You can check on development via the <a class="normal_link" style="font-family: 'Inter', sans-serif;" href="https://github.com/joshnegreanu/diogenes" target="_blank"><u>Github repository</u></a>.</div>
+                <div class="greeting-sub" style="color: rgb(100, 100, 100)">Diogenes is an experimental project; it makes frequent errors and should not be used for professional purposes. You can view the open-source project on <a class="normal_link" style="font-family: 'Inter', sans-serif;" href="https://github.com/joshnegreanu/diogenes" target="_blank"><u>Github</u></a>.</div>
                 <br>
                 <!-- <div class="greeting-desc">
                     Currently in development — the model and server are not yet live.<br>
@@ -91,9 +91,27 @@
     </footer> -->
 
     <script>
+        // const API_BASE = 'http://localhost:8000';
+        const API_BASE = 'https://diogenes-server.joshnegreanu.com';
+        const SESSION_ID = crypto.randomUUID();
         let hasStarted = false;
+        let isGenerating = false;
+        let userScrolledUp = false;
 
-        function sendMessage() {
+        window.addEventListener('scroll', () => {
+            const threshold = 100;
+            const atBottom = window.innerHeight + window.scrollY >= document.body.scrollHeight - threshold;
+            userScrolledUp = !atBottom;
+        }, { passive: true });
+
+        // Kill the server-side session when the tab is closed
+        window.addEventListener('beforeunload', () => {
+            fetch(`${API_BASE}/session/${SESSION_ID}`, { method: 'DELETE', keepalive: true });
+        });
+
+        async function sendMessage() {
+            if (isGenerating) return;
+
             const input = document.getElementById('chatInput');
             const text = input.value.trim();
             if (!text) return;
@@ -106,27 +124,58 @@
                 hasStarted = true;
             }
 
+            userScrolledUp = false;
             appendMessage(text, 'user');
             input.value = '';
             input.style.height = 'auto';
-            document.getElementById('sendBtn').disabled = true;
+
+            const btn = document.getElementById('sendBtn');
+            btn.disabled = true;
+            isGenerating = true;
 
             const typingId = showTyping();
 
-            setTimeout(() => {
+            try {
+                const response = await fetch(`${API_BASE}/chat/stream`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: text, session_id: SESSION_ID }),
+                });
+
+                if (!response.ok) throw new Error(`Server error: ${response.status}`);
+
                 removeTyping(typingId);
-                const replies = [
-                    "I'm still being written — check back soon.",
-                    "My thoughts are not yet fully formed. The work continues.",
-                    "I exist, but only in potential. Return when the ink has dried.",
-                    "The philosopher is still sharpening his quill.",
-                    "Not yet. But the foundation is being laid.",
-                    "I am under construction — much like any worthwhile idea.",
-                    "Even Socrates needed time. I am not yet ready.",
-                    "The model sleeps. Development continues on GitHub.",
-                ];
-                appendMessage(replies[Math.floor(Math.random() * replies.length)], 'bot');
-            }, 900);
+                const botDiv = appendMessage('', 'bot');
+
+                const reader = response.body.getReader();
+                const decoder = new TextDecoder();
+                let buffer = '';
+
+                while (true) {
+                    const { done, value } = await reader.read();
+                    if (done) break;
+
+                    buffer += decoder.decode(value, { stream: true });
+
+                    // SSE lines arrive as "data: <token>\n\n"
+                    const lines = buffer.split('\n');
+                    buffer = lines.pop(); // keep any incomplete line for the next chunk
+
+                    for (const line of lines) {
+                        if (line.startsWith('data: ')) {
+                            botDiv.textContent += JSON.parse(line.slice(6));
+                            scrollToBottom();
+                        }
+                    }
+                }
+            } catch (err) {
+                removeTyping(typingId);
+                appendMessage('Sorry, I am not online. Please try again.', 'bot');
+                console.error(err);
+            } finally {
+                isGenerating = false;
+                btn.disabled = input.value.trim() === '';
+            }
         }
 
         function handleChip(btn) {
@@ -134,6 +183,7 @@
             sendMessage();
         }
 
+        // Returns the created div so the caller can stream text into it
         function appendMessage(text, role) {
             const messages = document.getElementById('chatMessages');
             const div = document.createElement('div');
@@ -141,6 +191,7 @@
             div.textContent = text;
             messages.appendChild(div);
             scrollToBottom();
+            return div;
         }
 
         function showTyping() {
@@ -163,7 +214,9 @@
         }
 
         function scrollToBottom() {
-            window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+            if (!userScrolledUp) {
+                window.scrollTo({ top: document.body.scrollHeight, behavior: 'instant' });
+            }
         }
 
         document.addEventListener('DOMContentLoaded', function () {
@@ -175,7 +228,7 @@
             input.addEventListener('keydown', function (e) {
                 if (e.key === 'Enter' && !e.shiftKey) {
                     e.preventDefault();
-                    if (!btn.disabled) sendMessage();
+                    if (!btn.disabled && !isGenerating) sendMessage();
                 }
             });
 
